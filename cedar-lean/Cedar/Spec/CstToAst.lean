@@ -270,13 +270,6 @@ public def ExprOrSpecial.toValidAttr? (eos : ExprOrSpecial) : Option Attr :=
   | .strLit lit => CstCommon.unescape? lit
   | .boolLit _ => none
 
-public def chainComp? (head : Expr) (tail : List (Cst.RelOp × Expr)) (acc : Expr) : Expr :=
-  match tail with
-  | [] => acc
-  | (op, next) :: rest =>
-    let acc' := (.and acc (constructExprRel op head next))
-    chainComp? next rest acc'
-
 mutual
 
 public def rInitsToMap? (rs : List Cst.RecInit) : Option (List (Attr × Expr)) :=
