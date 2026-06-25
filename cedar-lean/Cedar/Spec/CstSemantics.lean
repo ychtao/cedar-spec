@@ -417,6 +417,25 @@ public def AddExpr.foldOps (acc : Value) (xs : List (AddOp × MultExpr))
     AddExpr.foldOps acc' rest req es
 termination_by sizeOf xs
 
+-- Evaluates a (compatible) comparison chain with the previous operand's value
+-- `head` already computed.  Each operand is evaluated lazily and the chain
+-- short-circuits on `false`, mirroring the translator's right-associated
+-- `(head op₀ x₀) && (x₀ op₁ x₁) && …` and the AST `Expr.and` semantics.
+public def chainCompEval (head : Value) (tail : List (RelOp × AddExpr))
+    (req : Request) (es : Entities) : Result Value :=
+  match tail with
+  | [] => .ok head -- unreachable: the caller only builds chains of length ≥ 2
+  | [(op, next)] => do
+    let nv ← next.evaluate req es
+    applyRelOp op head nv es
+  | (op, next) :: rest => do
+    let nv ← next.evaluate req es
+    let cur ← applyRelOp op head nv es
+    let b ← cur.asBool
+    if b then chainCompEval nv rest req es
+    else .ok (.prim (.bool false))
+termination_by sizeOf tail
+
 public def Relation.evaluate (e : Relation) (req : Request) (es : Entities) : Result Value :=
   match e with
   -- Currently assuming that the `RelOp` cannot be chained
@@ -426,7 +445,12 @@ public def Relation.evaluate (e : Relation) (req : Request) (es : Entities) : Re
       let v₁ ← x.evaluate req es
       let v₂ ← y.evaluate req es
       applyRelOp op v₁ v₂ es
-    | _ => .error .typeError
+    | tl =>
+      if CstCommon.chainable (tl.map (·.1))
+        && tl.all (fun p => p.2.toAExpr?.isSome) then do
+        let head ← x.evaluate req es
+        chainCompEval head tl req es
+      else .error .typeError
   | .rHas t f => do
       let v ← t.evaluate req es
       match f.toAttrs? with
@@ -623,12 +647,6 @@ public def Expr.or (e1 e2 : Expr) : Expr :=
   let e2' := e2.toPrimary.toMember.toUnary.toMultExpr.toAddExpr.toRelation.toAndExpr
   let e' : OrExpr := {initial := e1', extended := [e2']}
   e'.toExpr
-
--- Check whether this is needed
--- public def andReduce : List Expr → List Expr
---   | [] => []
---   | Expr.tt :: es => andReduce es
---   | e :: es => e :: (andReduce es)
 
 public def Expr.foldAnd : List Expr → Expr
   | []      => Expr.tt
