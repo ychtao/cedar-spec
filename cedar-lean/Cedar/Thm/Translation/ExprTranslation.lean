@@ -866,6 +866,35 @@ decreasing_by
      omega)
 
 
+/-- For a chain's operands: translating each CST operand (via `toAExpr?`) yields
+    an AST operand that agrees with it on evaluation.  Recurses over the operand
+    list, calling `Cst.AddExpr.toAExpr?_evaluate` on each. -/
+theorem chain_operands_forall₂ (req : Request) (es : Entities)
+    (extended : List (Cst.RelOp × Cst.AddExpr)) {tail : List (Cst.RelOp × Expr)} :
+    List.Forall₂ (fun p q => p.2.toAExpr?.bind (fun ex => some (p.1, ex)) = some q)
+      extended tail →
+    List.Forall₂ (fun cp ap => cp.1 = ap.1 ∧
+        ∀ vp, evaluate ap.2 req es = .ok vp ↔ cp.2.evaluate req es = .ok vp)
+      extended tail := by
+  intro hm
+  match extended, tail, hm with
+  | [], _, .nil => exact List.Forall₂.nil
+  | (op, x) :: tl, _, .cons hpq htl =>
+    simp only [Option.bind_eq_some_iff, Option.some.injEq] at hpq
+    obtain ⟨ex, hex, hqeq⟩ := hpq
+    subst hqeq
+    simp only [Cst.AddExpr.toAExpr?, Option.bind_eq_bind, Option.bind_eq_some_iff] at hex
+    obtain ⟨eos', heos', hexpr'⟩ := hex
+    have hiff := Cst.AddExpr.toAExpr?_evaluate (req := req) (es := es) heos' ex hexpr'
+    exact List.Forall₂.cons ⟨rfl, hiff⟩ (chain_operands_forall₂ req es tl htl)
+termination_by (sizeOf extended, 0)
+decreasing_by
+  all_goals
+    (apply Prod.Lex.left
+     simp only [List.cons.sizeOf_spec, Prod.mk.sizeOf_spec] at *
+     omega)
+
+
 theorem Cst.Relation.toAExpr?_evaluate
   {rel : Cst.Relation} {eos : ExprOrSpecial}
   {req : Request} {es : Entities} :
@@ -927,8 +956,50 @@ theorem Cst.Relation.toAExpr?_evaluate
         | ok xv =>
           have h_second : evaluate eSecond req es = .ok xv := (hx_iff xv).mpr h_x
           rw [constructExprRel_applyRelOp_agrees op eFirst eSecond req es iv xv h_first h_second]
-    | _ :: _ :: _ =>
-      simp [Cst.Relation.toExprOrSpecial?] at hrel
+    | hd₁ :: hd₂ :: rest =>
+      have hlen : (hd₁ :: hd₂ :: rest).length > 1 := by simp
+      simp only [Cst.Relation.toExprOrSpecial?, if_pos hlen] at hrel
+      split at hrel
+      case isFalse hnc => exact absurd hrel (by simp)
+      case isTrue hch =>
+        simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hrel
+        obtain ⟨head, hhead?, tail, htail?, heq⟩ := hrel
+        subst heq
+        simp only [ExprOrSpecial.toExpr?, Option.some.injEq] at heos
+        subst heos
+        -- head operand agreement
+        simp [Cst.AddExpr.toAExpr?, Option.bind_eq_some_iff] at hhead?
+        obtain ⟨hEos, hHeosTo, hHexpr⟩ := hhead?
+        have hhead_iff := Cst.AddExpr.toAExpr?_evaluate (req := req) (es := es) hHeosTo head hHexpr
+        rw [List.mapM₁_eq_mapM
+              (fun p : Cst.RelOp × Cst.AddExpr => p.2.toAExpr?.bind fun ex => some (p.1, ex))]
+          at htail?
+        have hF₂ := chain_operands_forall₂ req es (hd₁ :: hd₂ :: rest)
+          (List.mapM_some_iff_forall₂.mp htail?)
+        -- the evaluator's `all operands translate` guard holds
+        have hall : (hd₁ :: hd₂ :: rest).all (fun p => p.2.toAExpr?.isSome) = true := by
+          rw [List.all_eq_true]
+          intro p hp
+          obtain ⟨y, _, hy⟩ := List.mapM_some_implies_all_some htail? p hp
+          simp only [Option.bind_eq_some_iff] at hy
+          obtain ⟨ex, hex, _⟩ := hy
+          rw [hex]; rfl
+        -- reduce the evaluator
+        simp only [Cst.Relation.evaluate, hch, hall, Bool.and_self, if_true,
+          bind, Except.bind]
+        cases hinit : initial.evaluate req es with
+        | error einit =>
+          have hhe : ∃ e, evaluate head req es = .error e := by
+            cases hh : evaluate head req es with
+            | error e => exact ⟨e, rfl⟩
+            | ok hv => exact absurd ((hhead_iff hv).mp hh) (by rw [hinit]; simp)
+          obtain ⟨e, hhe⟩ := hhe
+          rw [chainComp_head_error hhe]
+          simp
+        | ok hv =>
+          have hhd_eval : evaluate head req es = .ok hv := (hhead_iff hv).mpr hinit
+          exact chainComp_chainCompEval_agrees req es (hd₁ :: hd₂ :: rest) tail head hv
+            hhd_eval hF₂ v
   | rHas target field =>
     simp [Cst.Relation.toExprOrSpecial?, Option.bind_eq_some_iff] at hrel
     obtain ⟨mt, hmt, mf, hmf, hres⟩ := hrel
