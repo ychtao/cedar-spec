@@ -572,6 +572,94 @@ theorem constructExprRel_applyRelOp_eq
     simp [constructExprRel, Cst.applyRelOp, evaluate, he₁, he₂,
           bind, Except.bind]
 
+/-- Full-`Except`-equality version of `chainComp_chainCompEval_agrees`: the AST
+    `chainComp`-tree and the evaluator's `chainCompEval` produce identical
+    results (errors included), given full per-operand evaluation equality. -/
+theorem chainComp_chainCompEval_eq (req : Request) (es : Entities) :
+    ∀ (cstTail : List (Cst.RelOp × Cst.AddExpr)) (astTail : List (Cst.RelOp × Expr))
+      (headExpr : Expr) (headVal : Value),
+    evaluate headExpr req es = .ok headVal →
+    List.Forall₂ (fun cp ap => cp.1 = ap.1 ∧ evaluate ap.2 req es = cp.2.evaluate req es)
+      cstTail astTail →
+    evaluate (chainComp headExpr astTail) req es = Cst.chainCompEval headVal cstTail req es := by
+  intro cstTail
+  induction cstTail with
+  | nil =>
+    intro astTail headExpr headVal hhead hrel
+    cases hrel
+    simp [chainComp, Cst.chainCompEval, hhead]
+  | cons cp cps ih =>
+    intro astTail headExpr headVal hhead hrel
+    cases hrel with
+    | cons hhd htl =>
+      rename_i ap aps
+      obtain ⟨op, cx⟩ := cp
+      obtain ⟨aop, ax⟩ := ap
+      obtain ⟨hop, hagree⟩ := hhd
+      simp only at hop
+      subst hop
+      simp only at hagree
+      cases cps with
+      | nil =>
+        cases htl
+        simp only [chainComp, Cst.chainCompEval]
+        rw [constructExprRel_eval_eq op headExpr ax req es headVal hhead, hagree]
+        simp [bind, Except.bind]
+      | cons cp' cps' =>
+        cases htl with
+        | cons hhd' htl' =>
+          rename_i ap' aps'
+          simp only [chainComp, Cst.chainCompEval]
+          have hAeq := constructExprRel_eval_eq op headExpr ax req es headVal hhead
+          cases hcx : cx.evaluate req es with
+          | error e =>
+            simp [evaluate, hAeq, hagree, hcx, bind, Except.bind, Result.as]
+          | ok nv =>
+            cases hcur : Cst.applyRelOp op headVal nv es with
+            | error e =>
+              simp [evaluate, hAeq, hagree, hcx, hcur, bind, Except.bind, Result.as]
+            | ok cur =>
+              cases hb : cur.asBool with
+              | error e =>
+                simp [evaluate, hAeq, hagree, hcx, hcur, hb, bind, Except.bind, Result.as, Coe.coe]
+              | ok bb =>
+                cases bb with
+                | false =>
+                  simp [evaluate, hAeq, hagree, hcx, hcur, hb, bind, Except.bind, Result.as, Coe.coe]
+                | true =>
+                  have hhead' : evaluate ax req es = .ok nv := by rw [hagree, hcx]
+                  have hIH := ih (ap' :: aps') ax nv hhead' (List.Forall₂.cons hhd' htl')
+                  simp only [evaluate, hAeq, hagree, hcx, hcur, hb, bind, Except.bind, Result.as, Coe.coe]
+                  rw [hIH]
+                  cases hC : Cst.chainCompEval nv (cp' :: cps') req es with
+                  | error e => simp
+                  | ok w =>
+                    obtain ⟨bw, hbw⟩ := chainCompEval_isBool req es (cp' :: cps') nv w (by simp) hC
+                    subst hbw
+                    simp [hC, Result.as, Value.asBool, Coe.coe, pure, Except.pure, Except.ok.injEq]
+
+/-- Full-equality analog of `chain_operands_forall₂`: build the per-operand
+    evaluation-equality `Forall₂` from the operand-translation `Forall₂` and a
+    (membership-scoped) per-operand soundness hypothesis. -/
+theorem chain_operands_forall₂_eq (req : Request) (es : Entities)
+    (extended : List (Cst.RelOp × Cst.AddExpr)) {tail : List (Cst.RelOp × Expr)}
+    (hm : List.Forall₂ (fun p q => p.2.toAExpr?.bind (fun ex => some (p.1, ex)) = some q)
+      extended tail)
+    (hsound : ∀ p ∈ extended, ∀ ex, p.2.toAExpr? = some ex →
+      evaluate ex req es = p.2.evaluate req es) :
+    List.Forall₂ (fun cp ap => cp.1 = ap.1 ∧ evaluate ap.2 req es = cp.2.evaluate req es)
+      extended tail := by
+  induction hm with
+  | nil => exact List.Forall₂.nil
+  | cons hpq htl ih =>
+    rename_i p q ptl qtl
+    simp only [Option.bind_eq_some_iff, Option.some.injEq] at hpq
+    obtain ⟨ex, hex, hqeq⟩ := hpq
+    subst hqeq
+    have heval := hsound p (List.mem_cons_self) ex hex
+    exact List.Forall₂.cons ⟨rfl, heval⟩
+      (ih (fun p hp => hsound p (List.mem_cons_of_mem _ hp)))
+
 /-- Collapse the `String ⊕ List String` shape from the translator's `toHasRhs?`
     into a flat `List String`, treating `.inl f` as the singleton `[f]`. -/
 def hasRhsToList : String ⊕ List String → List String

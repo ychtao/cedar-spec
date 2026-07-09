@@ -444,16 +444,12 @@ public def Relation.evaluate (e : Relation) (req : Request) (es : Entities) : Re
       let v₁ ← x.evaluate req es
       let v₂ ← y.evaluate req es
       applyRelOp op v₁ v₂ es
-<<<<<<< HEAD
     | tl =>
       if CstCommon.chainable (tl.map (·.1))
         && tl.all (fun p => p.2.toAExpr?.isSome) then do
         let head ← x.evaluate req es
         chainCompEval head tl req es
       else .error .typeError
-=======
-    | _ => .error (.cstError .unsupportedError)
->>>>>>> c68f818e (refactor the error types)
   | .rHas t f => do
       let v ← t.evaluate req es
       match f.toAttrs? with

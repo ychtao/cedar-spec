@@ -661,8 +661,51 @@ theorem Cst.Relation.toAExpr?_sound
           have h_second : evaluate eSecond req es = .ok xv := hx_eq.trans h_x
           rw [constructExprRel_applyRelOp_eq op eFirst eSecond req es iv xv h_first h_second]
           simp [Cst.Relation.evaluate, h_init, h_x, bind, Except.bind]
-    | _ :: _ :: _ =>
-      simp [Cst.Relation.toExprOrSpecial?] at hrel
+    | hd₁ :: hd₂ :: rest =>
+      have hlen : (hd₁ :: hd₂ :: rest).length > 1 := by simp
+      simp only [Cst.Relation.toExprOrSpecial?, if_pos hlen] at hrel
+      split at hrel
+      case isFalse hnc => exact absurd hrel (by simp)
+      case isTrue hch =>
+        simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hrel
+        obtain ⟨head, hhead?, tail, htail?, heq⟩ := hrel
+        subst heq
+        simp only [ExprOrSpecial.toExpr?, Option.some.injEq] at heos
+        subst heos
+        simp only [Cst.AddExpr.toAExpr?, Option.bind_eq_bind, Option.bind_eq_some_iff] at hhead?
+        obtain ⟨hEos, hHeosTo, hHexpr⟩ := hhead?
+        have hhead_eq := Cst.AddExpr.toAExpr?_sound (req := req) (es := es) hHeosTo head hHexpr
+        rw [List.mapM₁_eq_mapM
+              (fun p : Cst.RelOp × Cst.AddExpr => p.2.toAExpr?.bind fun ex => some (p.1, ex))]
+          at htail?
+        have hsound : ∀ p ∈ (hd₁ :: hd₂ :: rest), ∀ ex, p.2.toAExpr? = some ex →
+            evaluate ex req es = p.2.evaluate req es := by
+          intro p hp ex hpex
+          have hsz : sizeOf p.2 < sizeOf (Cst.Relation.rCommon initial (hd₁ :: hd₂ :: rest)) := by
+            have h1 := List.sizeOf_lt_of_mem hp
+            obtain ⟨pop, pv⟩ := p
+            simp only [Cst.Relation.rCommon.sizeOf_spec, Prod.mk.sizeOf_spec] at h1 ⊢
+            omega
+          simp only [Cst.AddExpr.toAExpr?, Option.bind_eq_bind, Option.bind_eq_some_iff] at hpex
+          obtain ⟨peos, hpeos, hpexpr⟩ := hpex
+          exact Cst.AddExpr.toAExpr?_sound hpeos ex hpexpr
+        have hF₂ := chain_operands_forall₂_eq req es (hd₁ :: hd₂ :: rest)
+          (List.mapM_some_iff_forall₂.mp htail?) hsound
+        have hall : (hd₁ :: hd₂ :: rest).all (fun p => p.2.toAExpr?.isSome) = true := by
+          rw [List.all_eq_true]
+          intro p hp
+          obtain ⟨y, _, hy⟩ := List.mapM_some_implies_all_some htail? p hp
+          simp only [Option.bind_eq_some_iff] at hy
+          obtain ⟨ex, hex, _⟩ := hy
+          rw [hex]; rfl
+        simp only [Cst.Relation.evaluate, hch, hall, Bool.and_self, if_true, bind, Except.bind]
+        cases hinit : initial.evaluate req es with
+        | error einit =>
+          have hhe : evaluate head req es = .error einit := by rw [hhead_eq, hinit]
+          rw [chainComp_head_error hhe]
+        | ok hv =>
+          have hhd_eval : evaluate head req es = .ok hv := by rw [hhead_eq, hinit]
+          exact chainComp_chainCompEval_eq req es (hd₁ :: hd₂ :: rest) tail head hv hhd_eval hF₂
   | rHas target field =>
     simp [Cst.Relation.toExprOrSpecial?, Option.bind_eq_some_iff] at hrel
     obtain ⟨mt, hmt, mf, hmf, hres⟩ := hrel
