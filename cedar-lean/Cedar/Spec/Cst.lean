@@ -552,6 +552,19 @@ public def String.toMethodOp? : String → Option (BinaryOp ⊕ UnaryOp)
   | "isEmpty" => some (.inr .isEmpty)
   | _ => none
 
+public inductive ChainDir
+  | asc
+  | desc
+deriving DecidableEq, BEq
+
+public def Cst.RelOp.toChainDir? : Cst.RelOp → Option ChainDir
+  | .rLess | .rLessEq => some .asc
+  | .rGreater | .rGreaterEq => some .desc
+  | _ => none
+
+public def chainable (rs : List Cst.RelOp) : Bool :=
+  let dirs := rs.map Cst.RelOp.toChainDir?
+  dirs.all (· = some .asc) || dirs.all (· = some .desc)
 
 
 end Cedar.Spec.CstCommon

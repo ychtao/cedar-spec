@@ -270,7 +270,9 @@ public def Relation.collectErrors (e : Relation) (req : Request) (es : Entities)
   let evalres := CollectResult.ofResult (e.evaluate req es)
   let errs := match e with
     | .rCommon initial extended =>
-        (initial.collectErrors req es).1 ∪ collectRels extended req es
+        (initial.collectErrors req es).1 ∪ collectRels extended req es ∪
+        (if (Cst.Relation.rCommon initial extended).toAExpr?.isNone
+         then Set.singleton (Error.cstError .translationError) else ∅)
     | .rHas target field =>
         (target.collectErrors req es).1 ∪
         (match field.toAttrs? with

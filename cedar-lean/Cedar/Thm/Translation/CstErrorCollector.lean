@@ -744,29 +744,21 @@ theorem Cst.Relation.collect_complete {e : Cst.Relation} {req : Request} {es : E
   match e with
   | .rCommon initial extended =>
     unfold Cst.Relation.collectErrors at h
-    obtain ⟨hev, herrs⟩ := (noCstError_union _ _).mpr h
-    obtain ⟨hinit, hrels⟩ := (noCstError_union _ _).mpr herrs
-    obtain ⟨eos_i, ae_i, heos_i, hae_i⟩ := Cst.AddExpr.collect_complete hinit
-    match hext : extended with
-    | [] =>
-      exact ⟨eos_i, ae_i, by simp [Cst.Relation.toExprOrSpecial?, heos_i], hae_i⟩
-    | (op, y) :: rest =>
-      match hrest : rest with
-      | _ :: _ =>
-        exfalso
-        have := (noCstError_ofResult _).mp hev (.cstError .unsupportedError)
-          (by simp [Cst.Relation.evaluate])
-        simp [Error.isCstError] at this
-      | [] =>
-        have hyA : y.toAExpr?.isSome := by
-          obtain ⟨_, _, hyeos, hyae⟩ :=
-            Cst.AddExpr.collect_complete
-              (collectRels_no_cst _ req es hrels (op, y) List.mem_cons_self)
-          simp [Cst.AddExpr.toAExpr?, hyeos, hyae]
-        obtain ⟨yexpr, hyexpr⟩ := Option.isSome_iff_exists.mp hyA
-        refine ⟨.expr (constructExprRel op ae_i yexpr), constructExprRel op ae_i yexpr, ?_,
-                by simp [ExprOrSpecial.toExpr?]⟩
-        simp [Cst.Relation.toExprOrSpecial?, heos_i, hae_i, hyexpr]
+    obtain ⟨_, herrs⟩ := (noCstError_union _ _).mpr h
+    obtain ⟨_, hcheck⟩ := (noCstError_union _ _).mpr herrs
+    -- The collector emits a `translationError` exactly when the (possibly chained)
+    -- comparison fails to translate, so `noCstError` gives translatability directly.
+    have hsome : (Cst.Relation.rCommon initial extended).toAExpr?.isSome := by
+      rw [Option.isSome_iff_ne_none]
+      intro he
+      rw [he] at hcheck
+      simp only [Option.isNone_none, if_true] at hcheck
+      rw [noCstError_singleton] at hcheck
+      simp [Error.isCstError] at hcheck
+    obtain ⟨ae, hae⟩ := Option.isSome_iff_exists.mp hsome
+    simp only [Cst.Relation.toAExpr?, bind, Option.bind_eq_some_iff] at hae
+    obtain ⟨eos, heos, hexpr⟩ := hae
+    exact ⟨eos, ae, heos, hexpr⟩
   | .rHas target field =>
     unfold Cst.Relation.collectErrors at h
     obtain ⟨hev, herrs⟩ := (noCstError_union _ _).mpr h
