@@ -2127,7 +2127,10 @@ theorem Cst.Expr.toAttr?_consistent (e : Cst.Expr) :
               simp [Cst.Expr.toAttr?, hoe, hae, hrel, hext]
             rw [hL]
             cases tl with
-            | cons _ _ => simp [Cst.Relation.toExprOrSpecial?]
+            | cons _ _ =>
+              simp only [Cst.Relation.toExprOrSpecial?]
+              repeat' split
+              all_goals simp [Cst.ExprOrSpecial.toValidAttr?, Option.bind_assoc, Option.bind_eq_none_iff]
             | nil =>
               simp [Cst.Relation.toExprOrSpecial?, Cst.ExprOrSpecial.toValidAttr?, Option.bind_assoc]
           | nil =>
@@ -2644,3 +2647,276 @@ theorem toPolicies?_forall₂ {cps : Cst.Policies} {aps : Spec.Policies} :
     obtain ⟨a0, ha0, restRets, hrest, hretseq⟩ := htrans
     subst hretseq
     exact List.Forall₂.cons ha0 (ih hrest)
+
+
+/-! ### Chained-comparison soundness (ported from extensions) -/
+
+theorem constructExprRel_eval_eq
+    (op : Cst.RelOp) (e₁ e₂ : Expr) (req : Request) (es : Entities) (v₁ : Value)
+    (h₁ : evaluate e₁ req es = .ok v₁) :
+    evaluate (Cst.constructExprRel op e₁ e₂) req es
+      = (evaluate e₂ req es).bind (fun v₂ => Cst.applyRelOp op v₁ v₂ es) := by
+  cases hv₂ : evaluate e₂ req es <;> cases op <;>
+    simp [Cst.constructExprRel, Cst.applyRelOp, evaluate, h₁, hv₂, bind, Except.bind]
+
+set_option linter.unreachableTactic false in
+set_option linter.unnecessarySeqFocus false in
+/-- Every relational operator produces a boolean value (when it succeeds). -/
+theorem applyRelOp_isBool {op : Cst.RelOp} {v₁ v₂ v : Value} {es : Entities}
+    (h : Cst.applyRelOp op v₁ v₂ es = .ok v) : ∃ b : Bool, v = .prim (.bool b) := by
+  have hnot : ∀ {r w : Value}, apply₁ .not r = .ok w → ∃ b : Bool, w = .prim (.bool b) := by
+    intro r w hr
+    cases r with
+    | prim p =>
+      cases p with
+      | bool b => simp only [apply₁, Except.ok.injEq] at hr; exact ⟨!b, hr.symm⟩
+      | _ => simp [apply₁] at hr
+    | _ => simp [apply₁] at hr
+  cases op
+  case rEq =>
+    simp only [Cst.applyRelOp, apply₂, Except.ok.injEq] at h
+    exact ⟨_, h.symm⟩
+  case rLess | rLessEq =>
+    simp only [Cst.applyRelOp] at h
+    cases v₁ <;> cases v₂ <;>
+      first
+        | (rename_i p₁ p₂; cases p₁ <;> cases p₂ <;>
+            simp only [apply₂, Except.ok.injEq, reduceCtorEq] at h <;> subst h <;> exact ⟨_, rfl⟩)
+        | (rename_i x₁ x₂; cases x₁ <;> cases x₂ <;>
+            simp only [apply₂, Except.ok.injEq, reduceCtorEq] at h <;> subst h <;> exact ⟨_, rfl⟩)
+        | simp only [apply₂, reduceCtorEq] at h
+  case rIn =>
+    simp only [Cst.applyRelOp] at h
+    cases v₁ <;> cases v₂ <;>
+      first
+        | (rename_i p₁ p₂; cases p₁ <;> cases p₂ <;>
+            simp only [apply₂, Except.ok.injEq, reduceCtorEq] at h <;> subst h <;> exact ⟨_, rfl⟩)
+        | (rename_i p s; cases p <;>
+            simp only [apply₂, reduceCtorEq] at h <;>
+            (cases hm : Data.Set.mapOrErr Value.asEntityUID s Error.typeError <;>
+              simp only [inₛ, hm, bind, Except.bind, Except.ok.injEq, reduceCtorEq] at h <;>
+              subst h <;> exact ⟨_, rfl⟩))
+        | simp only [apply₂, reduceCtorEq] at h
+  case rGreater | rGreaterEq | rNotEq =>
+    simp only [Cst.applyRelOp, bind, Except.bind] at h
+    split at h <;> first | exact hnot h | simp at h
+
+/-- A non-empty comparison chain evaluates (when it succeeds) to a boolean. -/
+theorem chainCompEval_isBool (req : Request) (es : Entities) :
+    ∀ (tail : List (Cst.RelOp × Cst.AddExpr)) (head v : Value),
+    tail ≠ [] → Cst.chainCompEval head tail req es = .ok v →
+    ∃ b : Bool, v = .prim (.bool b) := by
+  intro tail
+  induction tail with
+  | nil => intro head v hne _; exact absurd rfl hne
+  | cons hd tl ih =>
+    obtain ⟨op, next⟩ := hd
+    intro head v _ h
+    cases tl with
+    | nil =>
+      cases hnv : next.evaluate req es with
+      | error e => simp [Cst.chainCompEval, hnv, bind, Except.bind] at h
+      | ok nv =>
+        simp only [Cst.chainCompEval, hnv, bind, Except.bind] at h
+        exact applyRelOp_isBool h
+    | cons hd' tl' =>
+      cases hnv : next.evaluate req es with
+      | error e => simp [Cst.chainCompEval, hnv, bind, Except.bind] at h
+      | ok nv =>
+        cases hcur : Cst.applyRelOp op head nv es with
+        | error e => simp [Cst.chainCompEval, hnv, hcur, bind, Except.bind] at h
+        | ok cur =>
+          cases hb : cur.asBool with
+          | error e => simp [Cst.chainCompEval, hnv, hcur, hb, bind, Except.bind] at h
+          | ok b =>
+            simp only [Cst.chainCompEval, hnv, hcur, hb, bind, Except.bind] at h
+            split at h
+            · exact ih nv v (by simp) h
+            · simp only [Except.ok.injEq] at h; exact ⟨false, h.symm⟩
+
+/-- If the head operand errors, the whole chain errors with the same error
+    (the head is always evaluated first, as the left side of the first comparison). -/
+theorem chainComp_head_error {headExpr : Expr} {astTail : List (Cst.RelOp × Expr)}
+    {req : Request} {es : Entities} {e : Error}
+    (h : evaluate headExpr req es = .error e) :
+    evaluate (Cst.chainComp headExpr astTail) req es = .error e := by
+  match astTail with
+  | [] => simpa [Cst.chainComp] using h
+  | [(op, x)] =>
+    simp only [Cst.chainComp]
+    cases op <;> simp [Cst.constructExprRel, evaluate, h, bind, Except.bind]
+  | (op, x) :: hd' :: tl' =>
+    simp only [Cst.chainComp]
+    cases op <;> simp [Cst.constructExprRel, evaluate, h, bind, Except.bind, Result.as]
+
+/-- Agreement between the translator's `chainComp` (an `&&`-tree of comparisons
+    over pre-translated operands) and the evaluator's short-circuiting
+    `chainCompEval`.  Given that `headExpr` evaluates to `headVal`, and each CST
+    operand evaluates in agreement with its translated AST operand (same op,
+    same `.ok` results), the AST expression `Cst.chainComp headExpr astTail` and
+    `chainCompEval headVal cstTail` produce the same `.ok` results. -/
+theorem chainComp_chainCompEval_agrees (req : Request) (es : Entities) :
+    ∀ (cstTail : List (Cst.RelOp × Cst.AddExpr)) (astTail : List (Cst.RelOp × Expr))
+      (headExpr : Expr) (headVal : Value),
+    evaluate headExpr req es = .ok headVal →
+    List.Forall₂ (fun cp ap => cp.1 = ap.1 ∧
+        ∀ vp, evaluate ap.2 req es = .ok vp ↔ cp.2.evaluate req es = .ok vp)
+      cstTail astTail →
+    ∀ v, evaluate (Cst.chainComp headExpr astTail) req es = .ok v ↔
+         Cst.chainCompEval headVal cstTail req es = .ok v := by
+  intro cstTail
+  induction cstTail with
+  | nil =>
+    intro astTail headExpr headVal hhead hrel v
+    cases hrel
+    simp [Cst.chainComp, Cst.chainCompEval, hhead]
+  | cons cp cps ih =>
+    intro astTail headExpr headVal hhead hrel v
+    cases hrel with
+    | cons hhd htl =>
+      rename_i ap aps
+      obtain ⟨op, cx⟩ := cp
+      obtain ⟨aop, ax⟩ := ap
+      obtain ⟨hop, hagree⟩ := hhd
+      simp only at hop
+      subst hop
+      cases cps with
+      | nil =>
+        cases htl
+        simp only [Cst.chainComp, Cst.chainCompEval]
+        rw [constructExprRel_eval_eq op headExpr ax req es headVal hhead]
+        cases hax : evaluate ax req es with
+        | error e =>
+          cases hcx : cx.evaluate req es with
+          | error e' => simp [bind, Except.bind]
+          | ok nv => exact absurd ((hagree nv).mpr hcx) (by rw [hax]; simp)
+        | ok nv =>
+          have hcx : cx.evaluate req es = .ok nv := (hagree nv).mp hax
+          simp [hcx, bind, Except.bind]
+      | cons cp' cps' =>
+        cases htl with
+        | cons hhd' htl' =>
+          rename_i ap' aps'
+          simp only [Cst.chainComp, Cst.chainCompEval]
+          have hAeq := constructExprRel_eval_eq op headExpr ax req es headVal hhead
+          cases hax : evaluate ax req es with
+          | error e =>
+            cases hcx : cx.evaluate req es with
+            | error e' =>
+              simp [evaluate, hAeq, hax, bind, Except.bind, Result.as]
+            | ok nv => exact absurd ((hagree nv).mpr hcx) (by rw [hax]; simp)
+          | ok nv =>
+            have hcx : cx.evaluate req es = .ok nv := (hagree nv).mp hax
+            cases hcur : Cst.applyRelOp op headVal nv es with
+            | error e =>
+              simp [evaluate, hAeq, hax, hcx, hcur, bind, Except.bind, Result.as]
+            | ok cur =>
+              cases hb : cur.asBool with
+              | error e =>
+                simp [evaluate, hAeq, hax, hcx, hcur, hb, bind, Except.bind, Result.as, Coe.coe]
+              | ok bb =>
+                cases bb with
+                | false =>
+                  simp [evaluate, hAeq, hax, hcx, hcur, hb, bind, Except.bind, Result.as, Coe.coe]
+                | true =>
+                  have hIH := ih (ap' :: aps') ax nv hax (List.Forall₂.cons hhd' htl')
+                  simp only [evaluate, hAeq, hax, hcx, hcur, hb, bind, Except.bind, Result.as,
+                    Coe.coe, Bool.not_true, if_true]
+                  cases hB : evaluate (Cst.chainComp ax (ap' :: aps')) req es with
+                  | error e =>
+                    cases hC : Cst.chainCompEval nv (cp' :: cps') req es with
+                    | error e' => simp
+                    | ok w => rw [(hIH w).mpr hC] at hB; simp at hB
+                  | ok bval =>
+                    have hC : Cst.chainCompEval nv (cp' :: cps') req es = .ok bval :=
+                      (hIH bval).mp hB
+                    obtain ⟨b', hb'⟩ :=
+                      chainCompEval_isBool req es (cp' :: cps') nv bval (by simp) hC
+                    subst hb'
+                    simp [hC, Value.asBool, pure, Except.pure, Except.ok.injEq]
+/-- Equality version of `constructExprRel_applyRelOp_agrees`. -/
+
+theorem chainComp_chainCompEval_eq (req : Request) (es : Entities) :
+    ∀ (cstTail : List (Cst.RelOp × Cst.AddExpr)) (astTail : List (Cst.RelOp × Expr))
+      (headExpr : Expr) (headVal : Value),
+    evaluate headExpr req es = .ok headVal →
+    List.Forall₂ (fun cp ap => cp.1 = ap.1 ∧ evaluate ap.2 req es = cp.2.evaluate req es)
+      cstTail astTail →
+    evaluate (Cst.chainComp headExpr astTail) req es = Cst.chainCompEval headVal cstTail req es := by
+  intro cstTail
+  induction cstTail with
+  | nil =>
+    intro astTail headExpr headVal hhead hrel
+    cases hrel
+    simp [Cst.chainComp, Cst.chainCompEval, hhead]
+  | cons cp cps ih =>
+    intro astTail headExpr headVal hhead hrel
+    cases hrel with
+    | cons hhd htl =>
+      rename_i ap aps
+      obtain ⟨op, cx⟩ := cp
+      obtain ⟨aop, ax⟩ := ap
+      obtain ⟨hop, hagree⟩ := hhd
+      simp only at hop
+      subst hop
+      simp only at hagree
+      cases cps with
+      | nil =>
+        cases htl
+        simp only [Cst.chainComp, Cst.chainCompEval]
+        rw [constructExprRel_eval_eq op headExpr ax req es headVal hhead, hagree]
+        simp [bind, Except.bind]
+      | cons cp' cps' =>
+        cases htl with
+        | cons hhd' htl' =>
+          rename_i ap' aps'
+          simp only [Cst.chainComp, Cst.chainCompEval]
+          have hAeq := constructExprRel_eval_eq op headExpr ax req es headVal hhead
+          cases hcx : cx.evaluate req es with
+          | error e =>
+            simp [evaluate, hAeq, hagree, hcx, bind, Except.bind, Result.as]
+          | ok nv =>
+            cases hcur : Cst.applyRelOp op headVal nv es with
+            | error e =>
+              simp [evaluate, hAeq, hagree, hcx, hcur, bind, Except.bind, Result.as]
+            | ok cur =>
+              cases hb : cur.asBool with
+              | error e =>
+                simp [evaluate, hAeq, hagree, hcx, hcur, hb, bind, Except.bind, Result.as, Coe.coe]
+              | ok bb =>
+                cases bb with
+                | false =>
+                  simp [evaluate, hAeq, hagree, hcx, hcur, hb, bind, Except.bind, Result.as, Coe.coe]
+                | true =>
+                  have hhead' : evaluate ax req es = .ok nv := by rw [hagree, hcx]
+                  have hIH := ih (ap' :: aps') ax nv hhead' (List.Forall₂.cons hhd' htl')
+                  simp only [evaluate, hAeq, hagree, hcx, hcur, hb, bind, Except.bind, Result.as, Coe.coe]
+                  rw [hIH]
+                  cases hC : Cst.chainCompEval nv (cp' :: cps') req es with
+                  | error e => simp
+                  | ok w =>
+                    obtain ⟨bw, hbw⟩ := chainCompEval_isBool req es (cp' :: cps') nv w (by simp) hC
+                    subst hbw
+                    simp [hC, Result.as, Value.asBool, Coe.coe, pure, Except.pure, Except.ok.injEq]
+
+/-- Full-equality analog of `chain_operands_forall₂`: build the per-operand
+    evaluation-equality `Forall₂` from the operand-translation `Forall₂` and a
+    (membership-scoped) per-operand soundness hypothesis. -/
+theorem chain_operands_forall₂_eq (req : Request) (es : Entities)
+    (extended : List (Cst.RelOp × Cst.AddExpr)) {tail : List (Cst.RelOp × Expr)}
+    (hm : List.Forall₂ (fun p q => p.2.toAExpr?.bind (fun ex => some (p.1, ex)) = some q)
+      extended tail)
+    (hsound : ∀ p ∈ extended, ∀ ex, p.2.toAExpr? = some ex →
+      evaluate ex req es = p.2.evaluate req es) :
+    List.Forall₂ (fun cp ap => cp.1 = ap.1 ∧ evaluate ap.2 req es = cp.2.evaluate req es)
+      extended tail := by
+  induction hm with
+  | nil => exact List.Forall₂.nil
+  | cons hpq htl ih =>
+    rename_i p q ptl qtl
+    simp only [Option.bind_eq_some_iff, Option.some.injEq] at hpq
+    obtain ⟨ex, hex, hqeq⟩ := hpq
+    subst hqeq
+    have heval := hsound p (List.mem_cons_self) ex hex
+    exact List.Forall₂.cons ⟨rfl, heval⟩
+      (ih (fun p hp => hsound p (List.mem_cons_of_mem _ hp)))

@@ -433,16 +433,38 @@ public def AddExpr.foldOps (acc : Spec.Value) (xs : List (AddOp × MultExpr))
     AddExpr.foldOps acc' rest req es
 termination_by sizeOf xs
 
+-- Evaluates a (compatible) comparison chain given the previous operand's value
+-- `head`.  Each operand is evaluated lazily and the chain short-circuits on
+-- `false`, mirroring the translator's right-associated
+-- `(head op₀ x₀) && (x₀ op₁ x₁) && …` and the AST `Expr.and` semantics.
+public def chainCompEval (head : Spec.Value) (tail : List (RelOp × AddExpr))
+    (req : Spec.Request) (es : Spec.Entities) : Spec.Result Spec.Value :=
+  match tail with
+  | [] => .ok head -- unreachable: the caller only builds chains of length ≥ 2
+  | [(op, next)] => do
+    let nv ← next.evaluate req es
+    applyRelOp op head nv es
+  | (op, next) :: rest => do
+    let nv ← next.evaluate req es
+    let cur ← applyRelOp op head nv es
+    let b ← cur.asBool
+    if b then chainCompEval nv rest req es
+    else .ok (.prim (.bool false))
+termination_by sizeOf tail
+
 public def Relation.evaluate (e : Relation) (req : Spec.Request) (es : Spec.Entities) : Spec.Result Spec.Value :=
   match e with
-  -- `RelOp` cannot be chained
   | .rCommon x xs => match xs with
     | [] => x.evaluate req es
     | [(op, y)] => do
       let v₁ ← x.evaluate req es
       let v₂ ← y.evaluate req es
       applyRelOp op v₁ v₂ es
-    | _ => .error (.cstError .unsupportedError)
+    | tl =>
+      if chainable (tl.map (·.1)) && tl.all (fun p => p.2.toAExpr?.isSome) then do
+        let head ← x.evaluate req es
+        chainCompEval head tl req es
+      else .error (.cstError .unsupportedError)
   | .rHas t f => do
       let v ← t.evaluate req es
       match f.toAttrs? with

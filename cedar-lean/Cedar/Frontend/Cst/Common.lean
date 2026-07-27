@@ -288,6 +288,23 @@ public def String.toMethodOp? : String → Option (Spec.BinaryOp ⊕ Spec.UnaryO
   | "isEmpty" => some (.inr .isEmpty)
   | _ => none
 
+/-- Direction of a comparison operator, used to decide whether a comparison
+    chain is well-formed (all ascending or all descending). -/
+public inductive ChainDir
+  | asc
+  | desc
+deriving DecidableEq, BEq
+
+public def RelOp.toChainDir? : RelOp → Option ChainDir
+  | .rLess | .rLessEq => some .asc
+  | .rGreater | .rGreaterEq => some .desc
+  | _ => none
+
+/-- A chain of relational operators is chainable iff every operator points the
+    same direction (all ascending or all descending). -/
+public def chainable (rs : List RelOp) : Bool :=
+  let dirs := rs.map RelOp.toChainDir?
+  dirs.all (· = some .asc) || dirs.all (· = some .desc)
 
 
 end Cedar.Frontend.Cst

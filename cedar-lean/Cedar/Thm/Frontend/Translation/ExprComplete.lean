@@ -393,7 +393,38 @@ theorem Cst.Relation.toAExpr?_complete
       exact ⟨eos, ae, by simp [Cst.Relation.toExprOrSpecial?, heos], hae⟩
     | (op, y) :: rest =>
       match hrest : rest with
-      | _ :: _ => simp [Cst.Relation.evaluate] at hev
+      | rhd :: rtl =>
+        -- chain of length ≥ 2: a successful evaluation witnesses translation
+        simp only [Cst.Relation.evaluate] at hev
+        split at hev
+        · rename_i hguard
+          rw [Bool.and_eq_true] at hguard
+          obtain ⟨hch, hall⟩ := hguard
+          cases hi : initial.evaluate req es with
+          | error e => rw [hi] at hev; simp [bind, Except.bind] at hev
+          | ok hv =>
+            obtain ⟨ieos, iexpr, hieos, hiexpr⟩ := Cst.AddExpr.toAExpr?_complete hi
+            have hinitA : initial.toAExpr? = some iexpr := by
+              simp [Cst.AddExpr.toAExpr?, hieos, hiexpr]
+            have hmap : ∃ tail, ((op, y) :: rhd :: rtl).mapM
+                (fun p => p.2.toAExpr?.bind fun ex => some (p.1, ex)) = some tail := by
+              apply List.all_some_implies_mapM_some
+              intro p hp
+              rw [List.all_eq_true] at hall
+              have hps := hall p hp
+              rw [Option.isSome_iff_exists] at hps
+              obtain ⟨ex, hex⟩ := hps
+              exact ⟨(p.1, ex), by rw [hex]; rfl⟩
+            obtain ⟨tail, htail⟩ := hmap
+            have hlen : ((op, y) :: rhd :: rtl).length > 1 := by simp
+            refine ⟨.expr (Cst.chainComp iexpr tail), Cst.chainComp iexpr tail, ?_,
+                    by simp [Cst.ExprOrSpecial.toExpr?]⟩
+            simp only [Cst.Relation.toExprOrSpecial?, if_pos hlen, if_pos hch,
+              Option.bind_eq_bind,
+              List.mapM₁_eq_mapM
+                (fun p : Cst.RelOp × Cst.AddExpr => p.2.toAExpr?.bind fun ex => some (p.1, ex))]
+            simp [hinitA, htail]
+        · rename_i hguard; simp at hev
       | [] =>
         simp only [Cst.Relation.evaluate] at hev
         cases hi : initial.evaluate req es with

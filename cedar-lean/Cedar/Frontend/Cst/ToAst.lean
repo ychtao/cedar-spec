@@ -220,6 +220,17 @@ public def constructExprRel (op : RelOp) (e₁ e₂ : Spec.Expr) : Spec.Expr :=
   | .rEq => .binaryApp .eq e₁ e₂
   | .rIn => .binaryApp .mem e₁ e₂
 
+-- Build the AST for a (compatible) comparison chain whose operands have already
+-- been translated.  `head` is the previous operand expression; each step
+-- compares it with the next operand and conjoins (right-associated):
+--   `(head op₀ x₀) && (x₀ op₁ x₁) && …`
+-- Pure (no translation, no `Option`), so it lives outside the mutual block.
+public def chainComp (head : Spec.Expr) (tail : List (RelOp × Spec.Expr)) : Spec.Expr :=
+  match tail with
+  | [] => head -- unreachable: the caller only builds chains of length ≥ 2
+  | [(op, next)] => constructExprRel op head next
+  | (op, next) :: rest => .and (constructExprRel op head next) (chainComp next rest)
+
 public def constructAttrsAux? : List MemAccess → Option (List String)
   | [] => some []
   | .field id :: rest => do
@@ -466,14 +477,27 @@ termination_by (sizeOf e, 2)
 
 public def Relation.toExprOrSpecial? : Relation → Option ExprOrSpecial
   | .rCommon initial extended =>
-    if extended.length > 1 then none else do
-    let first ← initial.toExprOrSpecial?
-    match extended with
-    | [] => some first
-    | (op, x) :: _ =>
-      let first ← first.toExpr?
-      let second ← x.toAExpr?
-      some (.expr (constructExprRel op first second))
+    if extended.length > 1 then
+      if chainable (extended.map (·.1)) then do
+        let head ← initial.toAExpr?
+        let tail ← extended.mapM₁ (fun ⟨(op, x), hmem⟩ =>
+          have : sizeOf x < 1 + sizeOf initial + sizeOf extended := by
+            have h1 := List.sizeOf_lt_of_mem hmem
+            simp only [Prod.mk.sizeOf_spec] at h1
+            omega
+          do
+            let ex ← x.toAExpr?
+            some (op, ex))
+        some (.expr (chainComp head tail))
+      else none
+    else do
+      let first ← initial.toExprOrSpecial?
+      match extended with
+      | [] => some first
+      | (op, x) :: _ =>
+        let first ← first.toExpr?
+        let second ← x.toAExpr?
+        some (.expr (constructExprRel op first second))
   | .rHas target field => do
     let maybe_target ← target.toAExpr?
     let maybe_fields ← field.toHasRhs?
