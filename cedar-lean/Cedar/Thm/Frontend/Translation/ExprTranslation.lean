@@ -960,6 +960,38 @@ theorem Cst.ExprData.toAExpr?_sound
           | false => exact hf_eq
         | int _ | string _ | entityUID _ => simp [Value.asBool]
       | set _ | record _ | ext _ => simp [Value.asBool]
+  | edImp x y =>
+    simp [Cst.ExprData.toExprOrSpecial?, Option.bind_eq_some_iff] at hed
+    obtain ⟨ex, hx, ey, hy, hres⟩ := hed
+    have hguard : y.toAExpr?.isSome = true := by simp [hy]
+    rw [← hres] at heos
+    simp [Cst.ExprOrSpecial.toExpr?] at heos
+    rw [← heos]
+    simp [Cst.Expr.toAExpr?, Option.bind_eq_some_iff] at hx hy
+    obtain ⟨xEos, hxEos, hxExpr⟩ := hx
+    obtain ⟨yEos, hyEos, hyExpr⟩ := hy
+    have hszx : sizeOf x < sizeOf (Cst.ExprData.edImp x y) := by
+      simp only [Cst.ExprData.edImp.sizeOf_spec]; omega
+    have hszy : sizeOf y < sizeOf (Cst.ExprData.edImp x y) := by
+      simp only [Cst.ExprData.edImp.sizeOf_spec]; omega
+    have hx_eq : evaluate ex req es = x.evaluate req es := Cst.Expr.toAExpr?_sound hxEos ex hxExpr
+    have hy_eq : evaluate ey req es = y.evaluate req es := Cst.Expr.toAExpr?_sound hyEos ey hyExpr
+    rw [ExprData.evaluate_edImp_eq hguard]
+    simp [evaluate, bind, Except.bind, Result.as, Coe.coe]
+    rw [hx_eq]
+    cases hx' : x.evaluate req es with
+    | error err => simp
+    | ok xv =>
+      cases xv with
+      | prim p =>
+        cases p with
+        | bool b =>
+          simp [Value.asBool]
+          cases b with
+          | true => exact hy_eq
+          | false => simp
+        | int _ | string _ | entityUID _ => simp [Value.asBool]
+      | set _ | record _ | ext _ => simp [Value.asBool]
 termination_by (sizeOf ed, 0)
 decreasing_by all_goals (apply Prod.Lex.left; (subst_vars; assumption))
 

@@ -604,6 +604,23 @@ theorem Cst.ExprData.toAExpr?_complete
                    by simp [Cst.ExprData.toExprOrSpecial?, hiA, htt, hff],
                    by simp [Cst.ExprOrSpecial.toExpr?]⟩
     · simp [Cst.ExprData.evaluate, hguard] at hev
+  | edImp x y =>
+    by_cases hguard : y.toAExpr?.isSome = true
+    · rw [ExprData.evaluate_edImp_eq hguard] at hev
+      -- `x` is always evaluated, so a successful evaluation forces `x.evaluate`
+      -- to succeed, and Expr-level completeness recovers `x`'s translation.
+      cases hx : x.evaluate req es with
+      | error e => rw [hx] at hev; simp [bind, Except.bind, Result.as] at hev
+      | ok xv =>
+        obtain ⟨xeos, xexpr, hxeos, hxexpr⟩ := Cst.Expr.toAExpr?_complete hx
+        have hxA : x.toAExpr? = some xexpr := by simp [Cst.Expr.toAExpr?, hxeos, hxexpr]
+        cases hyt : y.toAExpr? with
+        | none => rw [hyt] at hguard; simp at hguard
+        | some yexpr =>
+          exact ⟨.expr (.ite xexpr yexpr (.lit (.bool true))), .ite xexpr yexpr (.lit (.bool true)),
+                 by simp [Cst.ExprData.toExprOrSpecial?, hxA, hyt],
+                 by simp [Cst.ExprOrSpecial.toExpr?]⟩
+    · simp [Cst.ExprData.evaluate, hguard] at hev
 termination_by (sizeOf ed, 0)
 decreasing_by
   all_goals (apply Prod.Lex.left; decreasing_tactic)

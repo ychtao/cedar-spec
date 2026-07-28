@@ -1894,6 +1894,15 @@ theorem ExprData.evaluate_edIf_eq {i t f : Cst.Expr} {req : Request} {es : Entit
           if b then t.evaluate req es else f.evaluate req es) := by
   simp only [Cst.ExprData.evaluate, if_pos h]
 
+/-- When both operands translate, `ExprData.evaluate`'s `edImp` guard is a no-op
+    and it reduces to the plain implication evaluation (`if x then y else true`). -/
+theorem ExprData.evaluate_edImp_eq {x y : Cst.Expr} {req : Request} {es : Entities}
+    (h : y.toAExpr?.isSome = true) :
+    Cst.ExprData.evaluate (.edImp x y) req es =
+      (do let a ← (x.evaluate req es).as Bool;
+          if a then y.evaluate req es else .ok (.prim (.bool true))) := by
+  simp only [Cst.ExprData.evaluate, if_pos h]
+
 /- For Primary's eList case -/
 
 /-- Generic element-wise bridge: when each element of `xs` translates to an AST
@@ -2070,6 +2079,11 @@ theorem Cst.Expr.toAttr?_consistent (e : Cst.Expr) :
       Cst.ExprData.toExprOrSpecial?]
     cases i.toAExpr? <;> cases t.toAExpr? <;> cases f.toAExpr? <;>
       simp [Cst.ExprOrSpecial.toValidAttr?]
+  | .expr ⟨.edImp x y⟩ =>
+    simp only [Cst.Expr.toAttr?, Cst.Expr.toExprOrSpecial?, Cst.ExprImpl.toExprOrSpecial?,
+      Cst.ExprData.toExprOrSpecial?]
+    cases x.toAExpr? <;> cases y.toAExpr? <;>
+      simp [Cst.ExprOrSpecial.toValidAttr?]
   | .expr ⟨.edOr o⟩ =>
     have hred : Cst.Expr.toExprOrSpecial? (.expr ⟨.edOr o⟩) = o.toExprOrSpecial? := by
       simp [Cst.Expr.toExprOrSpecial?, Cst.ExprImpl.toExprOrSpecial?, Cst.ExprData.toExprOrSpecial?]
@@ -2130,7 +2144,7 @@ theorem Cst.Expr.toAttr?_consistent (e : Cst.Expr) :
             | cons _ _ =>
               simp only [Cst.Relation.toExprOrSpecial?]
               repeat' split
-              all_goals simp [Cst.ExprOrSpecial.toValidAttr?, Option.bind_assoc, Option.bind_eq_none_iff]
+              all_goals simp [Cst.ExprOrSpecial.toValidAttr?, Option.bind_assoc]
             | nil =>
               simp [Cst.Relation.toExprOrSpecial?, Cst.ExprOrSpecial.toValidAttr?, Option.bind_assoc]
           | nil =>
@@ -2336,6 +2350,7 @@ theorem expr_mem_toAExpr {e : Cst.Expr} {r : EntityUID ⊕ List EntityUID} :
   intro h
   match he : e with
   | .expr ⟨.edIf _ _ _⟩ => simp [Cst.Expr.toMultipleEntityUID?] at h
+  | .expr ⟨.edImp _ _⟩ => simp [Cst.Expr.toMultipleEntityUID?] at h
   | .expr ⟨.edOr o⟩ =>
     simp only [Cst.Expr.toMultipleEntityUID?] at h
     split at h
@@ -2897,7 +2912,7 @@ theorem chainComp_chainCompEval_eq (req : Request) (es : Entities) :
                   | ok w =>
                     obtain ⟨bw, hbw⟩ := chainCompEval_isBool req es (cp' :: cps') nv w (by simp) hC
                     subst hbw
-                    simp [hC, Result.as, Value.asBool, Coe.coe, pure, Except.pure, Except.ok.injEq]
+                    simp [Value.asBool, pure, Except.pure]
 
 /-- Full-equality analog of `chain_operands_forall₂`: build the per-operand
     evaluation-equality `Forall₂` from the operand-translation `Forall₂` and a

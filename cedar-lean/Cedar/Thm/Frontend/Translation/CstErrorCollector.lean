@@ -912,6 +912,16 @@ theorem Cst.ExprData.collect_complete {e : Cst.ExprData} {req : Request} {es : E
     refine ⟨.expr (.ite ae_i ae_t ae_f), .ite ae_i ae_t ae_f, ?_, by simp [ExprOrSpecial.toExpr?]⟩
     unfold Cst.ExprData.toExprOrSpecial?
     simp [Cst.Expr.toAExpr?, heos_i, hae_i, heos_t, hae_t, heos_f, hae_f]
+  | .edImp x y =>
+    unfold Cst.ExprData.collectErrors at h
+    obtain ⟨_, herrs⟩ := (noCstError_union _ _).mpr h
+    obtain ⟨hx, hy⟩ := (noCstError_union _ _).mpr herrs
+    obtain ⟨eos_x, ae_x, heos_x, hae_x⟩ := Cst.Expr.collect_complete hx
+    obtain ⟨eos_y, ae_y, heos_y, hae_y⟩ := Cst.Expr.collect_complete hy
+    refine ⟨.expr (.ite ae_x ae_y (.lit (.bool true))), .ite ae_x ae_y (.lit (.bool true)),
+            ?_, by simp [ExprOrSpecial.toExpr?]⟩
+    unfold Cst.ExprData.toExprOrSpecial?
+    simp [Cst.Expr.toAExpr?, heos_x, hae_x, heos_y, hae_y]
 termination_by sizeOf e
 decreasing_by all_goals (simp_wf; try omega)
 
