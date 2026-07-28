@@ -578,6 +578,10 @@ public def ExprData.toExprOrSpecial? : ExprData → Option ExprOrSpecial
     let maybe_then ← t.toAExpr?
     let maybe_else ← e.toAExpr?
     some (.expr (.ite maybe_guard maybe_then maybe_else))
+  | .edImp x y => do
+    let maybe_x ← x.toAExpr?
+    let maybe_y ← y.toAExpr?
+    some (.expr (.ite maybe_x maybe_y (.lit (.bool true))))
 termination_by e => (sizeOf e, 0)
 
 public def ExprData.toAExpr? (e : ExprData) : Option Spec.Expr := do
@@ -680,7 +684,6 @@ decreasing_by
 
 public def Expr.toMultipleEntityUID? (e : Expr) : Option (Spec.EntityUID ⊕ List Spec.EntityUID) :=
   match e with
-  | .expr ⟨.edIf _ _ _⟩ => none
   | .expr ⟨.edOr o⟩ =>
     if !o.extended.isEmpty || !o.initial.extended.isEmpty then none
     else
@@ -694,6 +697,7 @@ public def Expr.toMultipleEntityUID? (e : Expr) : Option (Spec.EntityUID ⊕ Lis
             sizeOf_addExpr_primary_lt_orExpr o ae ext h
           ae.initial.initial.item.item.toMultipleEntityUID?
       | .rIsIn _ _ _ => none
+  | _ => none
 termination_by (sizeOf e, 1)
 decreasing_by
   all_goals (simp_wf; omega)

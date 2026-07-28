@@ -90,7 +90,6 @@ public def Primary.toAttr? (p : Primary) : Option Spec.Attr :=
     or an identifier name.  This matches the keys the translator accepts. -/
 public def Expr.toAttr? (e : Expr) : Option Spec.Attr :=
   match e with
-  | .expr ⟨.edIf _ _ _⟩ => none
   | .expr ⟨.edOr o⟩ =>
     if !o.extended.isEmpty || !o.initial.extended.isEmpty then none
     else match o.initial.initial with
@@ -102,6 +101,7 @@ public def Expr.toAttr? (e : Expr) : Option Spec.Attr :=
           | some (.nDash 0) => Primary.toAttr? ae.initial.initial.item.item
           | _               => none
       | _ => none
+  | _ => none
 
 -- RelOp: rLess, rLessEq, rGreaterEq, rGreater, rNotEq, rEq, rIn
 -- `rGreater`/`rGreaterEq` use the `not (less/lessEq v₁ v₂)` pattern to match
@@ -574,6 +574,11 @@ public def ExprData.evaluate (e : ExprData) (req : Spec.Request) (es : Spec.Enti
     if t.toAExpr?.isSome && f.toAExpr?.isSome then do
       let b ← (i.evaluate req es).as Bool
       if b then t.evaluate req es else f.evaluate req es
+    else .error (.cstError .translationError)
+  | .edImp x y =>
+    if y.toAExpr?.isSome then do
+      let a ← (x.evaluate req es).as Bool
+      if a then y.evaluate req es else .ok (.prim (.bool true))
     else .error (.cstError .translationError)
 termination_by sizeOf e
 

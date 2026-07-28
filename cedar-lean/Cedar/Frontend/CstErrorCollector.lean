@@ -334,7 +334,9 @@ public def ExprData.collectErrors (e : ExprData) (req : Request) (es : Entities)
   let errs := match e with
     | .edOr oe    => (oe.collectErrors req es).1
     | .edIf i t f =>
-        (i.collectErrors req es).1 ∪ (t.collectErrors req es).1 ∪ (f.collectErrors req es).1
+      (i.collectErrors req es).1 ∪ (t.collectErrors req es).1 ∪ (f.collectErrors req es).1
+    | .edImp x y =>
+      (x.collectErrors req es).1 ∪ (y.collectErrors req es).1
   (evalres.1 ∪ errs, evalres.2)
 termination_by sizeOf e
 decreasing_by all_goals (simp_wf; try omega)
@@ -385,4 +387,3 @@ public def Policies.collectErrors (ps : Policies) (req : Request) (es : Entities
   collectPolicies ps.ps req es
 
 end Cedar.Frontend.Cst
-

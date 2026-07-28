@@ -244,6 +244,8 @@ public inductive ExprData where
   | edOr (expr : OrExpr)
   -- cst::ExprData::If(Node<Expr>, Node<Expr>, Node<Expr>)
   | edIf (i t e : Expr) -- `if` is a LEAN keyword
+  -- Syntactic sugar implication
+  | edImp (x y : Expr)
 
 -- This is a cst::Or
 -- `Or` has already been declared in LEAN

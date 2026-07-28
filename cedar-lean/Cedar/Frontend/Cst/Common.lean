@@ -205,7 +205,6 @@ public def Ident.toEffect? : Ident → Option Spec.Effect
 
 public def Expr.toStringLiteral? : Expr → Option String
   | .expr e => match e.expr with
-    | .edIf _ _ _ => none
     | .edOr e => match e.initial.initial with
       | .rHas _ _ => none
       | .rLike _ _ => none
@@ -215,6 +214,7 @@ public def Expr.toStringLiteral? : Expr → Option String
           | _ => none
         | _ => none
       | .rIsIn _ _ _ => none
+    | _ => none
 
 public def Expr.toUnescapedStringLiteral? (e : Expr) : Option String := do
   let s ← Expr.toStringLiteral? e
